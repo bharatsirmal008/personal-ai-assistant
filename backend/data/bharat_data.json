@@ -1,0 +1,180 @@
+{
+  "personal": {
+    "name": "Bharat Sirmal",
+    "email": "sirmalbharat99@gmail.com",
+    "origin": "Purbichauki Rural Municipality, Ward No. 01, Khirshain Phulaut, Doti, Nepal",
+    "current_location_listed_on_resume": "Mumbai, Maharashtra, India",
+    "date_of_birth": {
+      "bs": "2060/05/19",
+      "ad": "05 September 2003"
+    },
+    "professional_links": [
+      "LinkedIn",
+      "GitHub",
+      "Portfolio-Bharat Sirmal"
+    ]
+  },
+  "education": {
+    "school_education": {
+      "school": "Shree Shajendra Show Secondary School",
+      "location": "Phulaut, Doti, Nepal",
+      "grades": "1-10",
+      "completed_year": 2022,
+      "gpa": 3.6,
+      "gpa_scale": 4.0
+    },
+    "higher_secondary": {
+      "school": "Kathmandu Model Secondary School",
+      "also_listed_as": "KMC Balkumari, Lalitpur",
+      "location": "Lalitpur, Nepal",
+      "grades": "11-12",
+      "completed_year": 2022,
+      "gpa": 3.14,
+      "gpa_scale": 4.0,
+      "resume_study_period": "2020-2022"
+    },
+    "bachelor": {
+      "degree": "B.Tech",
+      "field_as_provided": "Computer Engineering",
+      "field_in_resume_heading": "Computer Science",
+      "college": "Pillai College of Engineering, Panvel",
+      "location": "Panvel / New Panvel, India",
+      "affiliation": "University of Mumbai",
+      "study_period": "2023-2027",
+      "resume_cgpa": 8.74,
+      "cgpa_scale": 10.0,
+      "semester_cgpa": {
+        "semester_1": 8.14,
+        "semester_2": 9.16,
+        "semester_3": 9.47,
+        "semester_4": 8.9,
+        "semester_5": 8.74,
+        "semester_6": 8.23
+      }
+    }
+  },
+  "experience": {
+    "internships": [
+      {
+        "position": "Web Development Internship",
+        "company": "InAmigos Foundation",
+        "period": "May 2026 - Jun 2026",
+        "responsibilities": [
+          "Assisted in developing and maintaining the organization's website",
+          "Designed and implemented new features",
+          "Improved site functionality",
+          "Improved layout and structure",
+          "Made the website more visually attractive",
+          "Made the website easier to manage"
+        ],
+        "technologies": [
+          "HTML",
+          "CSS",
+          "JavaScript",
+          "React",
+          "Node.js",
+          "MongoDB"
+        ]
+      }
+    ]
+  },
+  "projects": [
+    {
+      "name": "YAOP Community Platform",
+      "technologies": [
+        "Next.js",
+        "Express.js",
+        "MongoDB",
+        "Firebase",
+        "Cloudinary"
+      ],
+      "work": [
+        "Designed and managed a centralized MongoDB database",
+        "Organized structured data for events and volunteers",
+        "Maintained accuracy and consistency across records",
+        "Processed and validated donation entries",
+        "Implemented Firebase authentication",
+        "Implemented structured data workflows",
+        "Built an admin dashboard for data entry and record updates",
+        "Reduced manual effort by approximately 40%",
+        "Minimized input errors"
+      ]
+    },
+    {
+      "name": "FrameForge Gaming Platform",
+      "technologies": [
+        "React.js",
+        "Express.js",
+        "MongoDB",
+        "Firebase",
+        "REST APIs",
+        "Postman"
+      ],
+      "work": [
+        "Designed and maintained structured MongoDB schemas for users, products, and orders",
+        "Ensured records were clean, queryable, and consistent",
+        "Engineered RESTful APIs for CRUD operations",
+        "Handled high-volume data operations reliably and efficiently",
+        "Implemented role-based data access control",
+        "Separated admin and user records",
+        "Conducted data validation and performance testing using Postman",
+        "Verified accuracy and integrity of API data flows",
+        "Collaborated in a 4-member team",
+        "Used Git for version control and task coordination"
+      ]
+    }
+  ],
+  "skills": {
+    "programming_languages": [
+      "Python",
+      "JavaScript",
+      "C++",
+      "SQL"
+    ],
+    "data_and_databases": [
+      "MongoDB",
+      "MySQL",
+      "SQL querying"
+    ],
+    "productivity_and_tools": [
+      "Microsoft Excel",
+      "Google Sheets",
+      "Postman",
+      "GitHub",
+      "Cloudinary"
+    ],
+    "cloud_and_platforms": [
+      "Google Cloud (Data Analytics)",
+      "Firebase",
+      "Vercel"
+    ],
+    "additional_project_and_internship_technologies": [
+      "Next.js",
+      "Express.js",
+      "React.js",
+      "REST APIs",
+      "HTML",
+      "CSS",
+      "JavaScript",
+      "Node.js"
+    ]
+  },
+  "certifications_and_achievements": [
+    {
+      "name": "Google Cloud Data Analytics Certificate",
+      "details": [
+        "Hands-on experience with cloud-based data pipelines",
+        "Data analysis",
+        "Structured reporting tools"
+      ]
+    },
+    {
+      "name": "Google Cloud Career Launchpad (Foundations Track)",
+      "details": [
+        "Cloud computing fundamentals",
+        "Data management",
+        "Analytics best practices"
+      ]
+    }
+  ]
+}
