@@ -7,3 +7,6 @@ requests
 sentence-transformers
 chromadb
 pydantic
+google-genai
+python-dotenv
+groq

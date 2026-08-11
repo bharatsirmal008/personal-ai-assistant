@@ -1,5 +1,8 @@
 import os
-import requests
+
+from dotenv import load_dotenv
+from google import genai
+from groq import Groq
 
 from langchain_community.vectorstores import Chroma
 from langchain_community.embeddings import HuggingFaceEmbeddings
@@ -8,10 +11,19 @@ from prompt import prompt_template
 
 
 # ============================================================
-# PATHS
+# LOAD ENVIRONMENT VARIABLES
 # ============================================================
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+ENV_FILE = os.path.join(BASE_DIR, ".env")
+
+load_dotenv(ENV_FILE)
+
+
+# ============================================================
+# PATHS
+# ============================================================
 
 DB_DIR = os.path.join(
     BASE_DIR,
@@ -23,28 +35,32 @@ DB_DIR = os.path.join(
 # RAG SETTINGS
 # ============================================================
 
+# Lower L2 distance = more relevant
+
 THRESHOLD = 1.7
 
 
 # ============================================================
-# OLLAMA SETTINGS
+# GEMINI SETTINGS
 # ============================================================
 
-# Railway:
-# OLLAMA_URL =
-# http://ollama.railway.internal:11434/api/generate
-#
-# Local computer:
-# http://127.0.0.1:11434/api/generate
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-OLLAMA_URL = os.getenv(
-    "OLLAMA_URL",
-    "http://127.0.0.1:11434/api/generate"
+GEMINI_MODEL = os.getenv(
+    "GEMINI_MODEL",
+    "gemini-3.5-flash"
 )
 
-OLLAMA_MODEL = os.getenv(
-    "OLLAMA_MODEL",
-    "llama3.2"
+
+# ============================================================
+# GROQ SETTINGS
+# ============================================================
+
+GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+
+GROQ_MODEL = os.getenv(
+    "GROQ_MODEL",
+    "llama-3.3-70b-versatile"
 )
 
 
@@ -55,6 +71,59 @@ OLLAMA_MODEL = os.getenv(
 _embeddings = None
 _vector_store = None
 
+_gemini_client = None
+_groq_client = None
+
+
+# ============================================================
+# GEMINI CLIENT
+# ============================================================
+
+def get_gemini_client():
+    """
+    Create the Gemini client once and reuse it.
+    """
+
+    global _gemini_client
+
+    if _gemini_client is None:
+
+        if not GEMINI_API_KEY:
+            raise RuntimeError(
+                "GEMINI_API_KEY is not configured."
+            )
+
+        _gemini_client = genai.Client(
+            api_key=GEMINI_API_KEY
+        )
+
+    return _gemini_client
+
+
+# ============================================================
+# GROQ CLIENT
+# ============================================================
+
+def get_groq_client():
+    """
+    Create the Groq client once and reuse it.
+    """
+
+    global _groq_client
+
+    if _groq_client is None:
+
+        if not GROQ_API_KEY:
+            raise RuntimeError(
+                "GROQ_API_KEY is not configured."
+            )
+
+        _groq_client = Groq(
+            api_key=GROQ_API_KEY
+        )
+
+    return _groq_client
+
 
 # ============================================================
 # LOAD VECTOR DATABASE
@@ -62,8 +131,7 @@ _vector_store = None
 
 def get_vector_store():
     """
-    Lazily initialize the embedding model and Chroma DB
-    exactly once.
+    Lazily initialize the embedding model and ChromaDB.
     """
 
     global _embeddings
@@ -75,9 +143,17 @@ def get_vector_store():
             "Loading embedding model and vector store..."
         )
 
+        # ----------------------------------------------------
+        # Embedding Model
+        # ----------------------------------------------------
+
         _embeddings = HuggingFaceEmbeddings(
             model_name="all-MiniLM-L6-v2"
         )
+
+        # ----------------------------------------------------
+        # ChromaDB
+        # ----------------------------------------------------
 
         _vector_store = Chroma(
             persist_directory=DB_DIR,
@@ -92,58 +168,159 @@ def get_vector_store():
 
 
 # ============================================================
-# CALL OLLAMA
+# CALL GEMINI
 # ============================================================
 
-def call_local_llm(prompt: str) -> str:
+def call_gemini(prompt: str) -> str:
     """
-    Send the prompt to Ollama.
-
-    Local:
-        http://127.0.0.1:11434/api/generate
-
-    Railway:
-        http://ollama.railway.internal:11434/api/generate
+    Send the final RAG prompt to Gemini.
     """
+
+    client = get_gemini_client()
 
     print(
-        f"Sending request to Ollama: {OLLAMA_URL}"
+        f"Sending request to Gemini: {GEMINI_MODEL}"
     )
 
-    response = requests.post(
-
-        OLLAMA_URL,
-
-        json={
-
-            "model": OLLAMA_MODEL,
-
-            "prompt": prompt,
-
-            "stream": False,
-
-            "options": {
-                "temperature": 0.3,
-                "num_predict": 80
-            },
-
-            "keep_alive": "30m"
-        },
-
-        timeout=120
+    response = client.models.generate_content(
+        model=GEMINI_MODEL,
+        contents=prompt,
     )
 
-    response.raise_for_status()
-
-    data = response.json()
-
-    if "response" not in data:
-
+    if not response.text:
         raise RuntimeError(
-            f"Unexpected Ollama response: {data}"
+            "Gemini returned an empty response."
         )
 
-    return data["response"].strip()
+    return response.text.strip()
+
+
+# ============================================================
+# CALL GROQ
+# ============================================================
+
+def call_groq(prompt: str) -> str:
+    """
+    Send the final RAG prompt to Groq.
+    """
+
+    client = get_groq_client()
+
+    print(
+        f"Sending request to Groq: {GROQ_MODEL}"
+    )
+
+    response = client.chat.completions.create(
+        model=GROQ_MODEL,
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+        temperature=0.3,
+    )
+
+    answer = response.choices[0].message.content
+
+    if not answer:
+        raise RuntimeError(
+            "Groq returned an empty response."
+        )
+
+    return answer.strip()
+
+
+# ============================================================
+# CHECK GEMINI QUOTA ERROR
+# ============================================================
+
+def is_quota_error(error: Exception) -> bool:
+    """
+    Detect Gemini quota/rate-limit errors.
+
+    Returns True when Gemini returns a 429,
+    RESOURCE_EXHAUSTED, or quota-related error.
+    """
+
+    error_text = str(error).lower()
+
+    quota_keywords = [
+        "429",
+        "resource_exhausted",
+        "quota exceeded",
+        "quota",
+        "rate limit",
+        "rate_limit"
+    ]
+
+    return any(
+        keyword in error_text
+        for keyword in quota_keywords
+    )
+
+
+# ============================================================
+# GENERATE ANSWER WITH AUTOMATIC FALLBACK
+# ============================================================
+
+def generate_answer(prompt: str) -> str:
+    """
+    AI model router:
+
+    1. Try Gemini
+    2. If Gemini quota is exhausted, use Groq
+    3. If both fail, return an error
+    """
+
+    # ========================================================
+    # TRY GEMINI FIRST
+    # ========================================================
+
+    try:
+
+        return call_gemini(prompt)
+
+    except Exception as gemini_error:
+
+        print(
+            f"Gemini error: {gemini_error}"
+        )
+
+        # ----------------------------------------------------
+        # Only fallback for quota/rate-limit errors
+        # ----------------------------------------------------
+
+        if not is_quota_error(gemini_error):
+
+            raise gemini_error
+
+        print(
+            "Gemini quota exceeded."
+        )
+
+        print(
+            "Switching automatically to Groq..."
+        )
+
+
+    # ========================================================
+    # FALLBACK TO GROQ
+    # ========================================================
+
+    try:
+
+        return call_groq(prompt)
+
+    except Exception as groq_error:
+
+        print(
+            f"Groq error: {groq_error}"
+        )
+
+        raise RuntimeError(
+            "Both Gemini and Groq are currently unavailable."
+        )
 
 
 # ============================================================
@@ -151,6 +328,18 @@ def call_local_llm(prompt: str) -> str:
 # ============================================================
 
 def answer_question(user_question: str) -> str:
+    """
+    Main RAG pipeline:
+
+    1. Check ChromaDB
+    2. Search relevant documents
+    3. Check relevance score
+    4. Build context
+    5. Create final prompt
+    6. Try Gemini
+    7. If Gemini quota is exhausted, use Groq
+    8. Return answer
+    """
 
     # ========================================================
     # CHECK CHROMA DATABASE
@@ -171,17 +360,16 @@ def answer_question(user_question: str) -> str:
 
         vector_store = get_vector_store()
 
+
         # ====================================================
-        # SEARCH
+        # SEARCH CHROMA DATABASE
         # ====================================================
 
-        results = (
-            vector_store
-            .similarity_search_with_score(
-                user_question,
-                k=3
-            )
+        results = vector_store.similarity_search_with_score(
+            user_question,
+            k=6
         )
+
 
         # ====================================================
         # NO RESULTS
@@ -194,6 +382,7 @@ def answer_question(user_question: str) -> str:
                 "Bharat Sirmal's background and experience."
             )
 
+
         # ====================================================
         # BEST SCORE
         # ====================================================
@@ -204,15 +393,10 @@ def answer_question(user_question: str) -> str:
             f"Best RAG score: {best_score}"
         )
 
+
         # ====================================================
         # CHECK RELEVANCE
         # ====================================================
-
-        # Chroma default L2 distance:
-        # lower = better
-        #
-        # If distance is greater than threshold,
-        # the question is probably unrelated.
 
         if best_score > THRESHOLD:
 
@@ -220,6 +404,7 @@ def answer_question(user_question: str) -> str:
                 "I can only answer questions about "
                 "Bharat Sirmal's background and experience."
             )
+
 
         # ====================================================
         # BUILD CONTEXT
@@ -232,52 +417,28 @@ def answer_question(user_question: str) -> str:
             ]
         )
 
+
         # ====================================================
         # CREATE PROMPT
         # ====================================================
 
         formatted_prompt = prompt_template.format(
-
             retrieved_chunks=context,
-
             user_question=user_question
         )
 
+
         # ====================================================
-        # SEND TO OLLAMA
+        # AI MODEL ROUTER
         # ====================================================
 
-        return call_local_llm(
+        return generate_answer(
             formatted_prompt
         )
 
-    # ========================================================
-    # REQUEST ERROR
-    # ========================================================
-
-    except requests.exceptions.ConnectionError:
-
-        return (
-            "Error connecting to Ollama. "
-            "Please make sure the Ollama service "
-            "is running."
-        )
-
-    except requests.exceptions.Timeout:
-
-        return (
-            "Ollama took too long to respond. "
-            "Please try again."
-        )
-
-    except requests.exceptions.RequestException as e:
-
-        return (
-            f"Error connecting to Ollama: {str(e)}"
-        )
 
     # ========================================================
-    # OTHER ERROR
+    # ERROR HANDLING
     # ========================================================
 
     except Exception as e:
