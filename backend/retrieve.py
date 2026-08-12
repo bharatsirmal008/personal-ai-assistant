@@ -36,8 +36,10 @@ DB_DIR = os.path.join(
 # ============================================================
 
 # Lower L2 distance = more relevant
-
 THRESHOLD = 1.7
+
+# Number of documents retrieved from ChromaDB
+TOP_K = 2
 
 
 # ============================================================
@@ -238,9 +240,6 @@ def call_groq(prompt: str) -> str:
 def is_quota_error(error: Exception) -> bool:
     """
     Detect Gemini quota/rate-limit errors.
-
-    Returns True when Gemini returns a 429,
-    RESOURCE_EXHAUSTED, or quota-related error.
     """
 
     error_text = str(error).lower()
@@ -324,6 +323,82 @@ def generate_answer(prompt: str) -> str:
 
 
 # ============================================================
+# JOJO DIRECT RESPONSES
+# ============================================================
+
+def get_jojo_direct_response(user_question: str):
+    """
+    Handle simple Jojo identity and greeting questions
+    without using ChromaDB or Gemini.
+
+    This makes common questions much faster.
+    """
+
+    q = user_question.strip().lower()
+
+    # --------------------------------------------------------
+    # Greetings
+    # --------------------------------------------------------
+
+    if q in [
+        "hi",
+        "hello",
+        "hey",
+        "hi jojo",
+        "hello jojo",
+        "hey jojo"
+    ]:
+        return "Hi! I'm Jojo. How can I help you?"
+
+    # --------------------------------------------------------
+    # Jojo's name
+    # --------------------------------------------------------
+
+    if q in [
+        "what is your name",
+        "what's your name",
+        "what is ur name",
+        "your name",
+        "tell me your name"
+    ]:
+        return "My name is Jojo."
+
+    # --------------------------------------------------------
+    # Who is Jojo?
+    # --------------------------------------------------------
+
+    if q in [
+        "who are you",
+        "who r you",
+        "who is jojo",
+        "who's jojo",
+        "tell me about yourself"
+    ]:
+        return (
+            "I'm Jojo, Bharat Sirmal's personal AI assistant."
+        )
+
+    # --------------------------------------------------------
+    # Jojo's boss
+    # --------------------------------------------------------
+
+    if q in [
+        "who is your boss",
+        "who's your boss",
+        "who is ur boss",
+        "who is your owner",
+        "who owns you"
+    ]:
+        return "Bharat Sirmal is my boss."
+
+    # --------------------------------------------------------
+    # Not a direct question
+    # --------------------------------------------------------
+
+    return None
+
+
+# ============================================================
 # ANSWER QUESTION
 # ============================================================
 
@@ -331,15 +406,43 @@ def answer_question(user_question: str) -> str:
     """
     Main RAG pipeline:
 
-    1. Check ChromaDB
-    2. Search relevant documents
-    3. Check relevance score
-    4. Build context
-    5. Create final prompt
-    6. Try Gemini
-    7. If Gemini quota is exhausted, use Groq
-    8. Return answer
+    1. Check simple Jojo questions
+    2. If simple question, answer immediately
+    3. Otherwise load ChromaDB
+    4. Search relevant documents
+    5. Check relevance score
+    6. Build context
+    7. Create final prompt
+    8. Try Gemini
+    9. If Gemini quota is exhausted, use Groq
+    10. Return answer
     """
+
+    # ========================================================
+    # VALIDATE QUESTION
+    # ========================================================
+
+    if not user_question or not user_question.strip():
+
+        return "I'm Jojo. What would you like to know?"
+
+
+    # ========================================================
+    # JOJO DIRECT RESPONSE
+    # ========================================================
+
+    direct_response = get_jojo_direct_response(
+        user_question
+    )
+
+    if direct_response is not None:
+
+        print(
+            "Using Jojo direct response."
+        )
+
+        return direct_response
+
 
     # ========================================================
     # CHECK CHROMA DATABASE
@@ -351,6 +454,7 @@ def answer_question(user_question: str) -> str:
             "System error: Vector database "
             "not initialized."
         )
+
 
     try:
 
@@ -365,9 +469,13 @@ def answer_question(user_question: str) -> str:
         # SEARCH CHROMA DATABASE
         # ====================================================
 
+        print(
+            f"Searching ChromaDB for: {user_question}"
+        )
+
         results = vector_store.similarity_search_with_score(
             user_question,
-            k=6
+            k=TOP_K
         )
 
 
@@ -378,8 +486,8 @@ def answer_question(user_question: str) -> str:
         if not results:
 
             return (
-                "I can only answer questions about "
-                "Bharat Sirmal's background and experience."
+                "I don't have that information about "
+                "Bharat yet."
             )
 
 
@@ -401,8 +509,8 @@ def answer_question(user_question: str) -> str:
         if best_score > THRESHOLD:
 
             return (
-                "I can only answer questions about "
-                "Bharat Sirmal's background and experience."
+                "I don't have that information about "
+                "Bharat yet."
             )
 
 
