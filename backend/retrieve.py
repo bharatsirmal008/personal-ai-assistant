@@ -1,4 +1,6 @@
 import os
+import json
+from typing import Generator
 
 from dotenv import load_dotenv
 from google import genai
@@ -9,14 +11,21 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 
 from prompt import prompt_template
 
+import memory
+
 
 # ============================================================
-# LOAD ENVIRONMENT VARIABLES
+# ENVIRONMENT
 # ============================================================
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+BASE_DIR = os.path.dirname(
+    os.path.abspath(__file__)
+)
 
-ENV_FILE = os.path.join(BASE_DIR, ".env")
+ENV_FILE = os.path.join(
+    BASE_DIR,
+    ".env"
+)
 
 load_dotenv(ENV_FILE)
 
@@ -35,18 +44,18 @@ DB_DIR = os.path.join(
 # RAG SETTINGS
 # ============================================================
 
-# Lower L2 distance = more relevant
+TOP_K = 6
+
 THRESHOLD = 1.7
 
-# Number of documents retrieved from ChromaDB
-TOP_K = 2
-
 
 # ============================================================
-# GEMINI SETTINGS
+# GEMINI
 # ============================================================
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_API_KEY = os.getenv(
+    "GEMINI_API_KEY"
+)
 
 GEMINI_MODEL = os.getenv(
     "GEMINI_MODEL",
@@ -55,10 +64,12 @@ GEMINI_MODEL = os.getenv(
 
 
 # ============================================================
-# GROQ SETTINGS
+# GROQ
 # ============================================================
 
-GROQ_API_KEY = os.getenv("GROQ_API_KEY")
+GROQ_API_KEY = os.getenv(
+    "GROQ_API_KEY"
+)
 
 GROQ_MODEL = os.getenv(
     "GROQ_MODEL",
@@ -82,9 +93,6 @@ _groq_client = None
 # ============================================================
 
 def get_gemini_client():
-    """
-    Create the Gemini client once and reuse it.
-    """
 
     global _gemini_client
 
@@ -107,9 +115,6 @@ def get_gemini_client():
 # ============================================================
 
 def get_groq_client():
-    """
-    Create the Groq client once and reuse it.
-    """
 
     global _groq_client
 
@@ -128,13 +133,10 @@ def get_groq_client():
 
 
 # ============================================================
-# LOAD VECTOR DATABASE
+# VECTOR STORE
 # ============================================================
 
 def get_vector_store():
-    """
-    Lazily initialize the embedding model and ChromaDB.
-    """
 
     global _embeddings
     global _vector_store
@@ -142,20 +144,12 @@ def get_vector_store():
     if _vector_store is None:
 
         print(
-            "Loading embedding model and vector store..."
+            "Loading embedding model and ChromaDB..."
         )
-
-        # ----------------------------------------------------
-        # Embedding Model
-        # ----------------------------------------------------
 
         _embeddings = HuggingFaceEmbeddings(
             model_name="all-MiniLM-L6-v2"
         )
-
-        # ----------------------------------------------------
-        # ChromaDB
-        # ----------------------------------------------------
 
         _vector_store = Chroma(
             persist_directory=DB_DIR,
@@ -163,84 +157,17 @@ def get_vector_store():
         )
 
         print(
-            "Embedding model and Chroma DB loaded."
+            "Embedding model and ChromaDB loaded."
         )
 
     return _vector_store
 
 
 # ============================================================
-# CALL GEMINI
-# ============================================================
-
-def call_gemini(prompt: str) -> str:
-    """
-    Send the final RAG prompt to Gemini.
-    """
-
-    client = get_gemini_client()
-
-    print(
-        f"Sending request to Gemini: {GEMINI_MODEL}"
-    )
-
-    response = client.models.generate_content(
-        model=GEMINI_MODEL,
-        contents=prompt,
-    )
-
-    if not response.text:
-        raise RuntimeError(
-            "Gemini returned an empty response."
-        )
-
-    return response.text.strip()
-
-
-# ============================================================
-# CALL GROQ
-# ============================================================
-
-def call_groq(prompt: str) -> str:
-    """
-    Send the final RAG prompt to Groq.
-    """
-
-    client = get_groq_client()
-
-    print(
-        f"Sending request to Groq: {GROQ_MODEL}"
-    )
-
-    response = client.chat.completions.create(
-        model=GROQ_MODEL,
-        messages=[
-            {
-                "role": "user",
-                "content": prompt
-            }
-        ],
-        temperature=0.3,
-    )
-
-    answer = response.choices[0].message.content
-
-    if not answer:
-        raise RuntimeError(
-            "Groq returned an empty response."
-        )
-
-    return answer.strip()
-
-
-# ============================================================
-# CHECK GEMINI QUOTA ERROR
+# QUOTA ERROR
 # ============================================================
 
 def is_quota_error(error: Exception) -> bool:
-    """
-    Detect Gemini quota/rate-limit errors.
-    """
 
     error_text = str(error).lower()
 
@@ -260,79 +187,12 @@ def is_quota_error(error: Exception) -> bool:
 
 
 # ============================================================
-# GENERATE ANSWER WITH AUTOMATIC FALLBACK
+# DIRECT JOJO RESPONSES
 # ============================================================
 
-def generate_answer(prompt: str) -> str:
-    """
-    AI model router:
-
-    1. Try Gemini
-    2. If Gemini quota is exhausted, use Groq
-    3. If both fail, return an error
-    """
-
-    # ========================================================
-    # TRY GEMINI FIRST
-    # ========================================================
-
-    try:
-
-        return call_gemini(prompt)
-
-    except Exception as gemini_error:
-
-        print(
-            f"Gemini error: {gemini_error}"
-        )
-
-        # ----------------------------------------------------
-        # Only fallback for quota/rate-limit errors
-        # ----------------------------------------------------
-
-        if not is_quota_error(gemini_error):
-
-            raise gemini_error
-
-        print(
-            "Gemini quota exceeded."
-        )
-
-        print(
-            "Switching automatically to Groq..."
-        )
-
-
-    # ========================================================
-    # FALLBACK TO GROQ
-    # ========================================================
-
-    try:
-
-        return call_groq(prompt)
-
-    except Exception as groq_error:
-
-        print(
-            f"Groq error: {groq_error}"
-        )
-
-        raise RuntimeError(
-            "Both Gemini and Groq are currently unavailable."
-        )
-
-
-# ============================================================
-# JOJO DIRECT RESPONSES
-# ============================================================
-
-def get_jojo_direct_response(user_question: str):
-    """
-    Handle simple Jojo identity and greeting questions
-    without using ChromaDB or Gemini.
-
-    This makes common questions much faster.
-    """
+def get_jojo_direct_response(
+    user_question: str
+):
 
     q = user_question.strip().lower()
 
@@ -348,10 +208,13 @@ def get_jojo_direct_response(user_question: str):
         "hello jojo",
         "hey jojo"
     ]:
-        return "Hi! I'm Jojo. How can I help you?"
+
+        return (
+            "Hi! I'm Jojo. How can I help you?"
+        )
 
     # --------------------------------------------------------
-    # Jojo's name
+    # Name
     # --------------------------------------------------------
 
     if q in [
@@ -361,10 +224,13 @@ def get_jojo_direct_response(user_question: str):
         "your name",
         "tell me your name"
     ]:
-        return "My name is Jojo."
+
+        return (
+            "My name is Jojo."
+        )
 
     # --------------------------------------------------------
-    # Who is Jojo?
+    # Who are you
     # --------------------------------------------------------
 
     if q in [
@@ -374,12 +240,13 @@ def get_jojo_direct_response(user_question: str):
         "who's jojo",
         "tell me about yourself"
     ]:
+
         return (
             "I'm Jojo, Bharat Sirmal's personal AI assistant."
         )
 
     # --------------------------------------------------------
-    # Jojo's boss
+    # Boss
     # --------------------------------------------------------
 
     if q in [
@@ -389,46 +256,322 @@ def get_jojo_direct_response(user_question: str):
         "who is your owner",
         "who owns you"
     ]:
-        return "Bharat Sirmal is my boss."
 
-    # --------------------------------------------------------
-    # Not a direct question
-    # --------------------------------------------------------
+        return (
+            "Bharat Sirmal is my boss."
+        )
 
     return None
 
 
 # ============================================================
-# ANSWER QUESTION
+# BUILD RAG CONTEXT
 # ============================================================
 
-def answer_question(user_question: str) -> str:
-    """
-    Main RAG pipeline:
+def build_context(results):
 
-    1. Check simple Jojo questions
-    2. If simple question, answer immediately
-    3. Otherwise load ChromaDB
-    4. Search relevant documents
-    5. Check relevance score
-    6. Build context
-    7. Create final prompt
-    8. Try Gemini
-    9. If Gemini quota is exhausted, use Groq
-    10. Return answer
-    """
+    context_parts = []
+
+    for index, (doc, score) in enumerate(
+        results,
+        start=1
+    ):
+
+        source = doc.metadata.get(
+            "source",
+            "Unknown source"
+        )
+
+        context_parts.append(
+            f"""
+--- SOURCE {index}: {source} ---
+Relevance score: {score:.4f}
+
+{doc.page_content}
+"""
+        )
+
+    return "\n".join(
+        context_parts
+    )
+
+
+# ============================================================
+# MEMORY
+# ============================================================
+
+def build_memory_context(
+    session_id: str
+):
+
+    conversation = memory.format_memory(
+        session_id
+    )
+
+    if not conversation:
+        return "No previous conversation."
+
+    return conversation
+
+
+# ============================================================
+# BUILD FINAL PROMPT
+# ============================================================
+
+def build_final_prompt(
+    user_question: str,
+    context: str,
+    previous_memory: str
+):
+
+    formatted_prompt = prompt_template.format(
+
+        retrieved_chunks=context,
+
+        user_question=user_question
+    )
+
+    memory_instruction = f"""
+
+============================================================
+PREVIOUS CONVERSATION
+============================================================
+
+{previous_memory}
+
+============================================================
+MEMORY INSTRUCTIONS
+============================================================
+
+Use the previous conversation only to understand references
+such as:
+
+- he
+- him
+- his
+- it
+- that
+- this
+- there
+- previous question
+- previous answer
+
+Do NOT treat conversation memory as a replacement for
+Bharat's factual knowledge.
+
+For factual information about Bharat, prefer the retrieved
+knowledge above.
+
+If the current question refers to something from the previous
+conversation, use the conversation to understand what the
+user means, then answer using the retrieved Bharat knowledge.
+
+============================================================
+END PREVIOUS CONVERSATION
+============================================================
+"""
+
+    return (
+        formatted_prompt
+        + memory_instruction
+    )
+
+
+# ============================================================
+# GEMINI STREAM
+# ============================================================
+
+def stream_gemini(
+    prompt: str
+) -> Generator[str, None, None]:
+
+    client = get_gemini_client()
+
+    print(
+        f"Streaming from Gemini: {GEMINI_MODEL}"
+    )
+
+    response = client.models.generate_content_stream(
+        model=GEMINI_MODEL,
+        contents=prompt
+    )
+
+    for chunk in response:
+
+        text = getattr(
+            chunk,
+            "text",
+            None
+        )
+
+        if text:
+            yield text
+
+
+# ============================================================
+# GROQ STREAM
+# ============================================================
+
+def stream_groq(
+    prompt: str
+) -> Generator[str, None, None]:
+
+    client = get_groq_client()
+
+    print(
+        f"Streaming from Groq: {GROQ_MODEL}"
+    )
+
+    stream = client.chat.completions.create(
+
+        model=GROQ_MODEL,
+
+        messages=[
+            {
+                "role": "user",
+                "content": prompt
+            }
+        ],
+
+        temperature=0.3,
+
+        stream=True
+    )
+
+    for chunk in stream:
+
+        try:
+
+            text = (
+                chunk
+                .choices[0]
+                .delta
+                .content
+            )
+
+            if text:
+                yield text
+
+        except Exception:
+            continue
+
+
+# ============================================================
+# STREAM AI
+# ============================================================
+
+def stream_generate_answer(
+    prompt: str
+):
+
+    # --------------------------------------------------------
+    # GEMINI
+    # --------------------------------------------------------
+
+    try:
+
+        got_token = False
+
+        for text in stream_gemini(prompt):
+
+            got_token = True
+
+            yield text
+
+        if got_token:
+            return
+
+    except Exception as gemini_error:
+
+        print(
+            f"Gemini streaming error: {gemini_error}"
+        )
+
+        if not is_quota_error(
+            gemini_error
+        ):
+
+            raise gemini_error
+
+        print(
+            "Gemini quota exceeded."
+        )
+
+        print(
+            "Switching to Groq streaming..."
+        )
+
+    # --------------------------------------------------------
+    # GROQ
+    # --------------------------------------------------------
+
+    try:
+
+        for text in stream_groq(prompt):
+
+            yield text
+
+    except Exception as groq_error:
+
+        print(
+            f"Groq streaming error: {groq_error}"
+        )
+
+        raise RuntimeError(
+            "Both Gemini and Groq are currently unavailable."
+        )
+
+
+# ============================================================
+# STREAM ANSWER
+# ============================================================
+
+def stream_answer(
+    user_question: str,
+    session_id: str = "default"
+):
 
     # ========================================================
-    # VALIDATE QUESTION
+    # VALIDATION
     # ========================================================
 
-    if not user_question or not user_question.strip():
+    if not user_question:
 
-        return "I'm Jojo. What would you like to know?"
+        answer = (
+            "I'm Jojo. What would you like to know?"
+        )
+
+        memory.add_exchange(
+            session_id,
+            user_question,
+            answer
+        )
+
+        yield answer
+
+        return
+
+    user_question = user_question.strip()
+
+    if not user_question:
+
+        answer = (
+            "I'm Jojo. What would you like to know?"
+        )
+
+        memory.add_exchange(
+            session_id,
+            user_question,
+            answer
+        )
+
+        yield answer
+
+        return
 
 
     # ========================================================
-    # JOJO DIRECT RESPONSE
+    # DIRECT JOJO RESPONSE
     # ========================================================
 
     direct_response = get_jojo_direct_response(
@@ -441,41 +584,103 @@ def answer_question(user_question: str) -> str:
             "Using Jojo direct response."
         )
 
-        return direct_response
+        memory.add_exchange(
+            session_id,
+            user_question,
+            direct_response
+        )
+
+        # Stream direct response too
+        words = direct_response.split()
+
+        for index, word in enumerate(words):
+
+            if index > 0:
+                yield " "
+
+            yield word
+
+        return
 
 
     # ========================================================
-    # CHECK CHROMA DATABASE
+    # MEMORY
+    # ========================================================
+
+    previous_memory = build_memory_context(
+        session_id
+    )
+
+    print()
+    print("=" * 60)
+    print(
+        f"SESSION: {session_id}"
+    )
+    print("=" * 60)
+
+    print(
+        "Previous conversation:"
+    )
+
+    print(
+        previous_memory
+    )
+
+
+    # ========================================================
+    # DATABASE
     # ========================================================
 
     if not os.path.exists(DB_DIR):
 
-        return (
+        answer = (
             "System error: Vector database "
             "not initialized."
         )
+
+        memory.add_exchange(
+            session_id,
+            user_question,
+            answer
+        )
+
+        yield answer
+
+        return
 
 
     try:
 
         # ====================================================
-        # LOAD VECTOR STORE
+        # VECTOR STORE
         # ====================================================
 
         vector_store = get_vector_store()
 
 
         # ====================================================
-        # SEARCH CHROMA DATABASE
+        # SEARCH
         # ====================================================
 
+        print()
+        print("=" * 60)
+
         print(
-            f"Searching ChromaDB for: {user_question}"
+            f"RAG QUESTION: {user_question}"
         )
 
-        results = vector_store.similarity_search_with_score(
-            user_question,
-            k=TOP_K
+        print(
+            f"Retrieving top {TOP_K} chunks..."
+        )
+
+        print("=" * 60)
+
+        results = (
+            vector_store
+            .similarity_search_with_score(
+                user_question,
+                k=TOP_K
+            )
         )
 
 
@@ -485,9 +690,45 @@ def answer_question(user_question: str) -> str:
 
         if not results:
 
-            return (
-                "I don't have that information about "
-                "Bharat yet."
+            answer = (
+                "I don't have that information "
+                "about Bharat yet."
+            )
+
+            memory.add_exchange(
+                session_id,
+                user_question,
+                answer
+            )
+
+            yield answer
+
+            return
+
+
+        # ====================================================
+        # PRINT SOURCES
+        # ====================================================
+
+        print()
+        print(
+            "RETRIEVED SOURCES:"
+        )
+
+        for index, (doc, score) in enumerate(
+            results,
+            start=1
+        ):
+
+            source = doc.metadata.get(
+                "source",
+                "Unknown"
+            )
+
+            print(
+                f"{index}. "
+                f"{source} | "
+                f"score={score:.4f}"
             )
 
 
@@ -497,64 +738,134 @@ def answer_question(user_question: str) -> str:
 
         best_score = results[0][1]
 
+        print()
+
         print(
-            f"Best RAG score: {best_score}"
+            f"Best RAG score: "
+            f"{best_score:.4f}"
         )
 
 
         # ====================================================
-        # CHECK RELEVANCE
+        # RELEVANCE
         # ====================================================
 
         if best_score > THRESHOLD:
 
-            return (
-                "I don't have that information about "
-                "Bharat yet."
+            answer = (
+                "I don't have that information "
+                "about Bharat yet."
             )
+
+            memory.add_exchange(
+                session_id,
+                user_question,
+                answer
+            )
+
+            yield answer
+
+            return
 
 
         # ====================================================
         # BUILD CONTEXT
         # ====================================================
 
-        context = "\n\n".join(
-            [
-                doc.page_content
-                for doc, score in results
-            ]
+        context = build_context(
+            results
+        )
+
+        print(
+            f"Context contains "
+            f"{len(results)} chunks."
         )
 
 
         # ====================================================
-        # CREATE PROMPT
+        # BUILD PROMPT
         # ====================================================
 
-        formatted_prompt = prompt_template.format(
-            retrieved_chunks=context,
-            user_question=user_question
+        final_prompt = build_final_prompt(
+
+            user_question=user_question,
+
+            context=context,
+
+            previous_memory=previous_memory
         )
 
 
         # ====================================================
-        # AI MODEL ROUTER
+        # STREAM AI
         # ====================================================
 
-        return generate_answer(
-            formatted_prompt
-        )
+        full_answer = ""
+
+        for chunk in stream_generate_answer(
+            final_prompt
+        ):
+
+            if not chunk:
+                continue
+
+            full_answer += chunk
+
+            # IMPORTANT:
+            # send token immediately
+            yield chunk
 
 
-    # ========================================================
-    # ERROR HANDLING
-    # ========================================================
+        # ====================================================
+        # SAVE MEMORY ONLY AFTER COMPLETE RESPONSE
+        # ====================================================
+
+        full_answer = full_answer.strip()
+
+        if full_answer:
+
+            memory.add_exchange(
+                session_id,
+                user_question,
+                full_answer
+            )
+
 
     except Exception as e:
 
+        print()
         print(
-            f"Unexpected RAG error: {e}"
+            f"Unexpected streaming error: {e}"
         )
 
-        return (
-            f"Unexpected error: {str(e)}"
+        error_message = (
+            "I'm having trouble processing "
+            "that request right now."
         )
+
+        yield error_message
+
+
+# ============================================================
+# NON-STREAMING COMPATIBILITY
+# ============================================================
+
+def answer_question(
+    user_question: str,
+    session_id: str = "default"
+):
+
+    chunks = []
+
+    for chunk in stream_answer(
+        user_question,
+        session_id
+    ):
+
+        chunks.append(
+            chunk
+        )
+
+    return "".join(
+        chunks
+    )

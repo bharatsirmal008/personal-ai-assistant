@@ -5,12 +5,16 @@ from fastapi import (
 )
 
 from fastapi.middleware.cors import CORSMiddleware
-
 from fastapi.staticfiles import StaticFiles
+
+from fastapi.responses import (
+    StreamingResponse
+)
 
 from pydantic import BaseModel
 
 import os
+import json
 
 import retrieve
 
@@ -32,9 +36,13 @@ app = FastAPI(
 
 app.add_middleware(
     CORSMiddleware,
+
     allow_origins=["*"],
+
     allow_credentials=False,
+
     allow_methods=["*"],
+
     allow_headers=["*"],
 )
 
@@ -83,16 +91,18 @@ app.mount(
 @app.on_event("startup")
 def load_resources():
 
-    print(
-        "Loading Bharat AI resources..."
-    )
+    print()
+    print("=" * 60)
+    print("BHARAT AI STARTING")
+    print("=" * 60)
 
-    # Load ChromaDB + embedding model
     retrieve.get_vector_store()
 
     print(
         "Bharat AI resources loaded."
     )
+
+    print("=" * 60)
 
 
 # ============================================================
@@ -103,125 +113,116 @@ class ChatRequest(BaseModel):
 
     question: str
 
-    # True when user used microphone
     voice: bool = False
 
-
-# ============================================================
-# RESPONSE MODEL
-# ============================================================
-
-class ChatResponse(BaseModel):
-
-    answer: str
-
-    # Audio URL when voice=True
-    audio_url: str | None = None
+    session_id: str = "default"
 
 
 # ============================================================
-# ASK AI
+# STREAM GENERATOR
 # ============================================================
 
-@app.post("/ask", response_model=ChatResponse)
-async def ask_question(
-    request: ChatRequest,
-    http_request: Request
+def generate_stream(
+    question: str,
+    session_id: str
 ):
-    if not request.question or not request.question.strip():
-        raise HTTPException(
-            status_code=400,
-            detail="Question cannot be empty."
-        )
-
-    try:
-        # RAG + AI
-        answer = retrieve.answer_question(
-            request.question
-        )
-
-        # Browser will handle TTS.
-        return ChatResponse(
-            answer=answer,
-            audio_url=None
-        )
-
-    except Exception as e:
-        print(f"Bharat AI error: {e}")
-
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
-        )
-
-    # --------------------------------------------------------
-    # Validate question
-    # --------------------------------------------------------
-
-    if (
-        not request.question
-        or not request.question.strip()
-    ):
-
-        raise HTTPException(
-            status_code=400,
-            detail="Question cannot be empty."
-        )
 
     try:
 
-        # ----------------------------------------------------
-        # RAG + GEMINI
-        # ----------------------------------------------------
+        for chunk in retrieve.stream_answer(
+            question,
+            session_id
+        ):
 
-        answer = retrieve.answer_question(
-            request.question
-        )
+            if not chunk:
+                continue
 
-        # ----------------------------------------------------
-        # TEXT ONLY
-        # ----------------------------------------------------
-
-        if not request.voice:
-
-            return ChatResponse(
-                answer=answer,
-                audio_url=None
+            # Send every chunk immediately
+            yield (
+                json.dumps({
+                    "token": chunk
+                })
+                + "\n"
             )
-
-        # ----------------------------------------------------
-        # VOICE OUTPUT
-        # ----------------------------------------------------
-
-        audio_filename = generate_voice(
-            answer
-        )
-
-        # ----------------------------------------------------
-        # Build public audio URL
-        # ----------------------------------------------------
-
-        audio_url = (
-            str(http_request.base_url).rstrip("/")
-            + "/audio/"
-            + audio_filename
-        )
-
-        return ChatResponse(
-            answer=answer,
-            audio_url=audio_url
-        )
 
     except Exception as e:
 
         print(
-            f"Bharat AI error: {e}"
+            f"Streaming error: {e}"
         )
 
-        raise HTTPException(
-            status_code=500,
-            detail=str(e)
+        yield (
+            json.dumps({
+                "error":
+                    "I'm having trouble processing "
+                    "that request right now."
+            })
+            + "\n"
         )
+
+
+# ============================================================
+# ASK AI — STREAMING
+# ============================================================
+
+@app.post("/ask")
+async def ask_question(
+    request: ChatRequest,
+    http_request: Request
+):
+
+    # --------------------------------------------------------
+    # VALIDATE
+    # --------------------------------------------------------
+
+    question = (
+        request.question or ""
+    ).strip()
+
+    if not question:
+
+        raise HTTPException(
+            status_code=400,
+            detail="Question cannot be empty."
+        )
+
+
+    print()
+    print("=" * 60)
+    print("NEW STREAMING QUESTION")
+    print("=" * 60)
+
+    print(
+        f"Question: {question}"
+    )
+
+    print(
+        f"Session: {request.session_id}"
+    )
+
+    print(
+        f"Voice: {request.voice}"
+    )
+
+    # --------------------------------------------------------
+    # STREAM RESPONSE
+    # --------------------------------------------------------
+
+    return StreamingResponse(
+
+        generate_stream(
+            question,
+            request.session_id
+        ),
+
+        media_type="application/x-ndjson",
+
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
 
 
 # ============================================================
@@ -233,5 +234,6 @@ def health_check():
 
     return {
         "status": "ok",
-        "service": "Bharat AI"
+        "service": "Bharat AI",
+        "streaming": True
     }
